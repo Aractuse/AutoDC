@@ -293,11 +293,13 @@ function Get-NavOrder {
 }
 
 function Update-NavButton {
-    # The Next button becomes Launch on the last node.
+    # The Next button becomes Launch on the last node; Back is disabled on the first.
     $order = Get-NavOrder
     $sel = $Script:MW.Tree.SelectedNode
-    $isLast = ($order.Count -gt 0 -and $sel -eq $order[$order.Count - 1])
+    $idx = $order.IndexOf($sel)
+    $isLast = ($order.Count -gt 0 -and $idx -eq $order.Count - 1)
     $Script:MW.BtnNext.Text = if ($isLast) { 'Launch' } else { 'Next >' }
+    if ($Script:MW.BtnBack) { $Script:MW.BtnBack.Enabled = ($idx -gt 0) }
 }
 
 function Show-NodePanel {
@@ -537,7 +539,7 @@ function Build-AddsTab {
     $grpDep.Controls.Add($rbDc)
 
     $grpDep.Controls.Add((New-FormLabel 'Domain name (FQDN)' 15 82 200))
-    $tbDomain = New-FormTextBox 'tp.lan' 230 80 250
+    $tbDomain = New-FormTextBox 'AutoDC.lan' 230 80 250
     $grpDep.Controls.Add($tbDomain)
 
     # --- Domain Controller Options ---
@@ -618,7 +620,7 @@ function Build-AddsTab {
     $Page.Controls.Add($grpAdd)
 
     $grpAdd.Controls.Add((New-FormLabel 'Domain NetBIOS name' 15 25 200))
-    $tbNet = New-FormTextBox 'TP' 240 23 250
+    $tbNet = New-FormTextBox 'AutoDC' 240 23 250
     $grpAdd.Controls.Add($tbNet)
 
     $chkDnsDeleg = New-Object System.Windows.Forms.CheckBox
@@ -723,7 +725,7 @@ function Build-DhcpTab {
     $gw     = if ($primary) { ($primary.IPv4DefaultGateway | Select-Object -First 1).NextHop } else { '' }
     $prefix = if ($primary) { ($primary.IPv4Address | Select-Object -First 1).PrefixLength } else { 24 }
 
-    $tbName   = New-FormTextBox 'TP-Scope'                          250 20 250
+    $tbName   = New-FormTextBox 'AutoDC-Scope'                          250 20 250
     $tbStart  = New-FormTextBox ($baseIp -replace '\.\d+$', '.100') 250 55 250
     $tbEnd    = New-FormTextBox ($baseIp -replace '\.\d+$', '.200') 250 90 250
     $tbMask   = New-FormTextBox (Get-MaskFromPrefix $prefix)        250 125 250
@@ -860,6 +862,15 @@ function Build-ChecksTab {
     $btn.Add_Click({ Update-PrereqChecks })
     $Page.Controls.Add($btn)
 
+    # Command preview lives here (only relevant right before launch)
+    $btnPrev = New-Object System.Windows.Forms.Button
+    $btnPrev.Text = 'Preview commands'; $btnPrev.Location = New-Object System.Drawing.Point(140, 42); $btnPrev.Size = New-Object System.Drawing.Size(140, 26)
+    $btnPrev.Add_Click({
+        $d = Read-MainWindow
+        if ($d) { Show-CommandPreview -Text (Build-CommandPreview -Data $d) }
+    })
+    $Page.Controls.Add($btnPrev)
+
     $txt = New-Object System.Windows.Forms.TextBox
     $txt.Multiline = $true; $txt.ReadOnly = $true; $txt.ScrollBars = 'Both'; $txt.WordWrap = $false
     $txt.Font = New-Object System.Drawing.Font('Consolas', 9)
@@ -876,6 +887,10 @@ function Build-ChecksTab {
 # ---------------------------------------------------------------------------
 function Read-MainWindow {
     $mw = $Script:MW
+    # Validation walks through the tabs and selects the offending node on error.
+    # Remember the current selection so a SUCCESSFUL read leaves the user where
+    # they were (e.g. on the Prerequisites tab when clicking Preview).
+    $savedNode = $mw.Tree.SelectedNode
 
     # ---- Server (rename) ----
     if ($mw.ChkRename.Checked) {
@@ -939,7 +954,7 @@ function Read-MainWindow {
         $mw.Tree.SelectedNode = $mw.Nodes.Adds
         $domain = $mw.TbDomain.Text.Trim()
         if ($domain -notmatch '^([A-Za-z0-9](-?[A-Za-z0-9])*)(\.[A-Za-z0-9](-?[A-Za-z0-9])*)+$') {
-            Show-Warning 'Invalid FQDN domain name (e.g. tp.lan).'; return $null }
+            Show-Warning 'Invalid FQDN domain name (e.g. AutoDC.lan).'; return $null }
         $newForest = $mw.RbForest.Checked
         $netbios = $mw.TbNet.Text.Trim().ToUpper()
         if ($newForest -and $netbios -notmatch '^[A-Z0-9]{1,15}$') {
@@ -1055,6 +1070,9 @@ function Read-MainWindow {
             Reservations = $reservations; Exclusions = $exclusions
         }
     }
+
+    # Success: restore the selection the caller was on (validation moved it around).
+    if ($savedNode -and $null -ne $savedNode.TreeView) { $mw.Tree.SelectedNode = $savedNode }
 
     @{ Rename = $rename; Network = $network; Roles = $roles; Adds = $adds; Dns = $dns; Dhcp = $dhcp
        AllowPing = [bool]$mw.ChkAllowPing.Checked }
@@ -1180,13 +1198,23 @@ function Show-MainWindow {
     $SplitterWidth    = 5     # grab width of the drag handle (px)
     # --------------------------------------------------------------------------
 
-    # Bottom button bar (compact buttons)
+    # Bottom button bar (compact buttons). Two groups: navigation on the right
+    # (Cancel / Next-Launch / Back), configuration on the left (Import / Export).
     $bar = New-Object System.Windows.Forms.Panel
     $bar.Dock = 'Bottom'; $bar.Height = 42
 
-    $flow = New-Object System.Windows.Forms.FlowLayoutPanel
-    $flow.Dock = 'Fill'; $flow.FlowDirection = 'RightToLeft'; $flow.Padding = New-Object System.Windows.Forms.Padding(6)
-    $bar.Controls.Add($flow)
+    $rightFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $rightFlow.Dock = 'Right'; $rightFlow.FlowDirection = 'RightToLeft'
+    $rightFlow.AutoSize = $true; $rightFlow.WrapContents = $false
+    $rightFlow.Padding = New-Object System.Windows.Forms.Padding(6)
+
+    $leftFlow = New-Object System.Windows.Forms.FlowLayoutPanel
+    $leftFlow.Dock = 'Left'; $leftFlow.FlowDirection = 'LeftToRight'
+    $leftFlow.AutoSize = $true; $leftFlow.WrapContents = $false
+    $leftFlow.Padding = New-Object System.Windows.Forms.Padding(6)
+
+    $bar.Controls.Add($rightFlow)
+    $bar.Controls.Add($leftFlow)
 
     $btnCancel = New-Object System.Windows.Forms.Button
     $btnCancel.Text = 'Cancel'; $btnCancel.Size = New-Object System.Drawing.Size(66, 26)
@@ -1198,8 +1226,9 @@ function Show-MainWindow {
     $btnNext.Text = 'Next >'; $btnNext.Size = New-Object System.Drawing.Size(86, 26)
     $mw.BtnNext = $btnNext
 
-    $btnPreview = New-Object System.Windows.Forms.Button
-    $btnPreview.Text = 'Preview'; $btnPreview.Size = New-Object System.Drawing.Size(86, 26)
+    $btnBack = New-Object System.Windows.Forms.Button
+    $btnBack.Text = '< Back'; $btnBack.Size = New-Object System.Drawing.Size(86, 26)
+    $mw.BtnBack = $btnBack
 
     $btnExport = New-Object System.Windows.Forms.Button
     $btnExport.Text = 'Export'; $btnExport.Size = New-Object System.Drawing.Size(66, 26)
@@ -1207,7 +1236,10 @@ function Show-MainWindow {
     $btnImport = New-Object System.Windows.Forms.Button
     $btnImport.Text = 'Import'; $btnImport.Size = New-Object System.Drawing.Size(66, 26)
 
-    $flow.Controls.AddRange(@($btnCancel, $btnNext, $btnPreview, $btnExport, $btnImport))
+    # Right group, laid out right-to-left: Cancel, Next/Launch, Back
+    $rightFlow.Controls.AddRange(@($btnCancel, $btnNext, $btnBack))
+    # Left group, laid out left-to-right: Import, Export
+    $leftFlow.Controls.AddRange(@($btnImport, $btnExport))
 
     # Left navigation pane (tree wrapped in a padded host so there is a border
     # all around it), a mouse-draggable splitter, and the right content host.
@@ -1281,9 +1313,10 @@ function Show-MainWindow {
         $d = Read-MainWindow
         if ($d) { Export-AnswerFile -Data $d }
     })
-    $btnPreview.Add_Click({
-        $d = Read-MainWindow
-        if ($d) { Show-CommandPreview -Text (Build-CommandPreview -Data $d) }
+    $btnBack.Add_Click({
+        $order = Get-NavOrder
+        $i = $order.IndexOf($Script:MW.Tree.SelectedNode)
+        if ($i -gt 0) { $Script:MW.Tree.SelectedNode = $order[$i - 1] }
     })
     $btnNext.Add_Click({
         $order = Get-NavOrder
