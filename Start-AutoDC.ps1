@@ -44,17 +44,14 @@ param(
 
 $ErrorActionPreference = 'Stop'
 
-# ---------------------------------------------------------------------------
-#  Verbose / debug modes (handled by the script, not via $DebugPreference)
-# ---------------------------------------------------------------------------
+#region Verbose / debug modes (handled by the script, not via $DebugPreference)
 $Script:VerboseMode = $PSBoundParameters.ContainsKey('Verbose')
 $Script:DebugMode   = $PSBoundParameters.ContainsKey('Debug')
 if ($Script:VerboseMode) { $VerbosePreference = 'Continue' }
 $DebugPreference = 'SilentlyContinue'  # we handle deployment confirmations ourselves
 
-# ---------------------------------------------------------------------------
-#  Constants / paths
-# ---------------------------------------------------------------------------
+#endregion  # Verbose / debug modes (handled by the script, not via $DebugPreference)
+#region Constants / paths
 $Script:AppDir       = Join-Path $env:ProgramData 'AutoDC'
 $Script:StateFile    = Join-Path $Script:AppDir 'state.json'
 $Script:LogFile      = Join-Path $Script:AppDir 'AutoDC.log'
@@ -67,9 +64,8 @@ if (-not (Test-Path $Script:AppDir)) {
     New-Item -ItemType Directory -Path $Script:AppDir -Force | Out-Null
 }
 
-# ---------------------------------------------------------------------------
-#  Logging
-# ---------------------------------------------------------------------------
+#endregion  # Constants / paths
+#region Logging
 function Write-Log {
     param(
         [Parameter(Mandatory)] [string]$Message,
@@ -89,9 +85,8 @@ function Write-VerboseInfo {
     }
 }
 
-# ---------------------------------------------------------------------------
-#  Elevation
-# ---------------------------------------------------------------------------
+#endregion  # Logging
+#region Elevation
 function Test-IsAdmin {
     $id = [Security.Principal.WindowsIdentity]::GetCurrent()
     (New-Object Security.Principal.WindowsPrincipal($id)).IsInRole(
@@ -114,9 +109,8 @@ if (-not (Test-IsAdmin)) {
     exit
 }
 
-# ===========================================================================
-#  HELPERS: network validation
-# ===========================================================================
+#endregion  # Elevation
+#region HELPERS: network validation
 function Test-IPv4Address {
     param([string]$Value)
     if ([string]::IsNullOrWhiteSpace($Value)) { return $false }
@@ -163,9 +157,8 @@ function ConvertTo-IpUInt {
     [System.BitConverter]::ToUInt32($b, 0)
 }
 
-# ===========================================================================
-#  HELPERS: random password
-# ===========================================================================
+#endregion  # HELPERS: network validation
+#region HELPERS: random password
 function New-RandomPassword {
     param([int]$Length = 20)
     $upper = 'ABCDEFGHJKLMNPQRSTUVWXYZ'
@@ -185,9 +178,8 @@ function New-RandomPassword {
     -join ($chars | Sort-Object { Get-Random })
 }
 
-# ===========================================================================
-#  HELPERS: secrets (machine-scope DPAPI) + hostname
-# ===========================================================================
+#endregion  # HELPERS: random password
+#region HELPERS: secrets (machine-scope DPAPI) + hostname
 function Protect-Secret {
     param([string]$Plain)
     if ([string]::IsNullOrEmpty($Plain)) { return '' }
@@ -213,9 +205,8 @@ function Test-Hostname {
     ($Name -match '^(?!-)[A-Za-z0-9-]{1,15}(?<!-)$') -and ($Name -notmatch '^\d+$')
 }
 
-# ===========================================================================
-#  DEPLOYMENT CONFIRMATION (-Debug mode)
-# ===========================================================================
+#endregion  # HELPERS: secrets (machine-scope DPAPI) + hostname
+#region DEPLOYMENT CONFIRMATION (-Debug mode)
 function Confirm-DeployStep {
     param([string]$Description)
     Write-Log $Description
@@ -233,9 +224,8 @@ function Confirm-DeployStep {
     }
 }
 
-# ===========================================================================
-#  GRAPHICAL INTERFACE (Windows Forms)
-# ===========================================================================
+#endregion  # DEPLOYMENT CONFIRMATION (-Debug mode)
+#region GRAPHICAL INTERFACE (Windows Forms)
 function Initialize-WinForms {
     Add-Type -AssemblyName System.Windows.Forms
     Add-Type -AssemblyName System.Drawing
@@ -274,14 +264,12 @@ function Confirm-YesNo {
         [System.Windows.Forms.MessageBoxIcon]::Warning) -eq [System.Windows.Forms.DialogResult]::Yes)
 }
 
-# ---------------------------------------------------------------------------
-#  Single window with a left navigation tree (ADUC / Windows Server 2022
+#region Single window with a left navigation tree (ADUC / Windows Server 2022
 #  wizard style): Server / Network (+ one child node per NIC) / Roles, plus
 #  ADDS / DNS / DHCP nodes shown only when the matching role is checked. Each
 #  navigable node carries its content Panel in .Tag. All control references
 #  live in $Script:MW so event handlers and the Read/Sync/Set helpers never
 #  rely on already-returned function locals.
-# ---------------------------------------------------------------------------
 function Get-NavOrder {
     # Flatten the tree (top nodes then their children) into a navigation order.
     $order = New-Object System.Collections.ArrayList
@@ -794,10 +782,9 @@ function Build-DhcpTab {
     $mw.GridExclusions = $gridEx
 }
 
-# ---------------------------------------------------------------------------
-#  Prerequisites (pre-flight) checks: environment sanity before the launch
+#endregion  # Single window with a left navigation tree (ADUC / Windows Server 2022
+#region Prerequisites (pre-flight) checks: environment sanity before the launch
 #  that chains two automatic reboots. Reads the live system + current fields.
-# ---------------------------------------------------------------------------
 function Get-PrereqResults {
     $mw = $Script:MW
     $r = New-Object System.Collections.ArrayList
@@ -880,11 +867,10 @@ function Build-ChecksTab {
     $mw.TxtChecks = $txt
 }
 
-# ---------------------------------------------------------------------------
-#  Read + validate every tab into a $data object (or $null on failure).
+#endregion  # Prerequisites (pre-flight) checks: environment sanity before the launch
+#region Read + validate every tab into a $data object (or $null on failure).
 #  Reuses the shared Test-* helpers; on error it switches to the offending
 #  tab and shows the warning, so the "verification phases" always run.
-# ---------------------------------------------------------------------------
 function Read-MainWindow {
     $mw = $Script:MW
     # Validation walks through the tabs and selects the offending node on error.
@@ -1078,9 +1064,8 @@ function Read-MainWindow {
        AllowPing = [bool]$mw.ChkAllowPing.Checked }
 }
 
-# ---------------------------------------------------------------------------
-#  Fill the window controls from a loaded configuration (Import).
-# ---------------------------------------------------------------------------
+#endregion  # Read + validate every tab into a $data object (or $null on failure).
+#region Fill the window controls from a loaded configuration (Import).
 function Set-MainWindowFromData {
     param($Data)
     $mw = $Script:MW
@@ -1173,10 +1158,9 @@ function Set-MainWindowFromData {
     }
 }
 
-# ---------------------------------------------------------------------------
-#  The single window with a left navigation tree. Returns the collected $data
+#endregion  # Fill the window controls from a loaded configuration (Import).
+#region The single window with a left navigation tree. Returns the collected $data
 #  on Launch, else $null.
-# ---------------------------------------------------------------------------
 function Show-MainWindow {
     $Script:MW = @{ Nodes = @{}; Panels = @(); Data = $null }
     $mw = $Script:MW
@@ -1188,7 +1172,7 @@ function Show-MainWindow {
     $form.MinimumSize = New-Object System.Drawing.Size(720, 560)
     $mw.Form = $form
 
-    # ---- Left pane layout: tweak these numbers to taste ----------------------
+    # ---- Left pane layout  ---------------------------------------------------
     $PaneWidth        = 200   # initial width of the left navigation pane (px)
     $PaneMinWidth     = 130   # minimum width when dragging the splitter (px)
     $PaneBorderLeft   = 6     # empty border around the pane (px)
@@ -1353,9 +1337,9 @@ function Show-MainWindow {
     return $null
 }
 
-# ===========================================================================
-#  COMMAND PREVIEW (dry-run listing, secrets masked)
-# ===========================================================================
+#endregion  # The single window with a left navigation tree. Returns the collected $data
+#endregion  # GRAPHICAL INTERFACE (Windows Forms)
+#region COMMAND PREVIEW (dry-run listing, secrets masked)
 function Build-CommandPreview {
     param($Data)
     $sb = New-Object System.Text.StringBuilder
@@ -1505,18 +1489,16 @@ function Show-CommandPreview {
     [void]$form.ShowDialog()
 }
 
-# ===========================================================================
-#  STATE (persistence between phases)
-# ===========================================================================
+#endregion  # COMMAND PREVIEW (dry-run listing, secrets masked)
+#region STATE (persistence between phases)
 function Save-State { param($State) $State | ConvertTo-Json -Depth 6 | Set-Content -Path $Script:StateFile -Encoding UTF8 }
 function Get-State {
     if (-not (Test-Path $Script:StateFile)) { return $null }
     Get-Content -Path $Script:StateFile -Raw | ConvertFrom-Json
 }
 
-# ===========================================================================
-#  ANSWER FILE (save / load the configuration)
-# ===========================================================================
+#endregion  # STATE (persistence between phases)
+#region ANSWER FILE (save / load the configuration)
 function Import-AnswerFile {
     $dlg = New-Object System.Windows.Forms.OpenFileDialog
     $dlg.Filter = 'AutoDC answer file (*.json)|*.json|All files (*.*)|*.*'
@@ -1579,9 +1561,8 @@ function Write-ErrorReport {
     try { Set-Content -Path $file -Value $lines -Encoding UTF8; Write-Log "Error report written: $file" 'WARN' } catch { }
 }
 
-# ===========================================================================
-#  DEPLOYMENT ACTIONS
-# ===========================================================================
+#endregion  # ANSWER FILE (save / load the configuration)
+#region DEPLOYMENT ACTIONS
 function Set-NetworkConfiguration {
     param($Network)
     foreach ($n in $Network) {
@@ -1784,9 +1765,8 @@ Keep this file in a safe place, then delete it.
     Write-Log "Random DSRM password written to the Desktop: $file" 'OK'
 }
 
-# ===========================================================================
-#  CONFIGURE PHASE: DNS forwarders + DHCP (post-reboot)
-# ===========================================================================
+#endregion  # DEPLOYMENT ACTIONS
+#region CONFIGURE PHASE: DNS forwarders + DHCP (post-reboot)
 function Wait-ForActiveDirectory {
     param([int]$TimeoutSeconds = 600)
     Write-Log 'Waiting for Active Directory to become available...'
@@ -2010,9 +1990,8 @@ function Show-ThankYou {
         [System.Windows.Forms.MessageBoxIcon]::Information) | Out-Null
 }
 
-# ===========================================================================
-#  PROMOTE PHASE
-# ===========================================================================
+#endregion  # CONFIGURE PHASE: DNS forwarders + DHCP (post-reboot)
+#region PROMOTE PHASE
 function Invoke-PromotePhase {
     Write-Log "=== PROMOTE PHASE: promotion after rename (current name: $env:COMPUTERNAME) ==="
     $state = Get-State
@@ -2048,9 +2027,8 @@ function Invoke-PromotePhase {
     } finally { $dsrm = $null; $domPwd = $null; $adds = $null }
 }
 
-# ===========================================================================
-#  CONFIGURE PHASE
-# ===========================================================================
+#endregion  # PROMOTE PHASE
+#region CONFIGURE PHASE
 function Invoke-ConfigurePhase {
     Write-Log '=== CONFIGURE PHASE: post-reboot configuration ==='
     $state = Get-State
@@ -2103,9 +2081,8 @@ function Invoke-ConfigurePhase {
     Write-Log '=== Installation complete ===' 'OK'
 }
 
-# ===========================================================================
-#  SUMMARY (text)
-# ===========================================================================
+#endregion  # CONFIGURE PHASE
+#region SUMMARY (text)
 function Build-SummaryText {
     param($Data)
     $rename = $Data.Rename; $network = $Data.Network; $roles = $Data.Roles
@@ -2161,9 +2138,8 @@ function Build-SummaryText {
     [pscustomobject]@{ Text = $sb.ToString(); Warning = $warning; IsError = ($reboots -gt 0) }
 }
 
-# ===========================================================================
-#  INTERACTIVE PHASE: collect (single window) + launch
-# ===========================================================================
+#endregion  # SUMMARY (text)
+#region INTERACTIVE PHASE: collect (single window) + launch
 function Invoke-InteractivePhase {
     Write-Log '=== PHASE 1: interactive collection ==='
     if ($Script:DebugMode) { Write-Log '[DEBUG] Debug mode active: confirmation before every deployment step.' }
@@ -2260,9 +2236,8 @@ function Invoke-InteractivePhase {
     Invoke-Promotion -Adds $adds -InstallDns:$adds.InstallDns
 }
 
-# ===========================================================================
-#  ENTRY POINT
-# ===========================================================================
+#endregion  # INTERACTIVE PHASE: collect (single window) + launch
+#region ENTRY POINT
 try {
     Initialize-WinForms   # also required for Confirm-DeployStep / MessageBox in the interactive phase
     switch ($Phase) {
@@ -2279,3 +2254,5 @@ try {
         } catch { }
     }
 }
+
+#endregion  # ENTRY POINT
